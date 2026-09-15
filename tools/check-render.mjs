@@ -2,8 +2,13 @@
  * Headless proof: render a session through omp's production transcript pipeline
  * and count the graphics escapes it emitted.
  *
- *   bun tools/check-render.mjs                    # most recent session for this cwd
- *   bun tools/check-render.mjs --session <id|path>
+ *   bun tools/check-render.mjs                                 # most recent session for this cwd
+ *   bun tools/check-render.mjs --session <id|path> --profile <name>
+ *
+ * The live-proof scripts record their sessions under `omp --profile ompimg-proof`, so
+ * `bun tools/check-render.mjs --profile ompimg-proof` is the run that contains images.
+ * Render a profile's session with the same profile or its `blob:sha256:` image refs
+ * resolve against the wrong blob store and degrade to text cards.
  *
  * `omp render` replays the session into a real InteractiveMode + TUI wired to a
  * byte sink, so these bytes are exactly what a live session writes to the
@@ -11,15 +16,24 @@
  * surfaces rendered as pictures; `[Image: …]` text means they did not.
  */
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const argv = process.argv.slice(2);
 const sessionIndex = argv.indexOf("--session");
 const widthIndex = argv.indexOf("--width");
+const profileIndex = argv.indexOf("--profile");
 const session = sessionIndex >= 0 ? argv[sessionIndex + 1] : null;
 const width = widthIndex >= 0 ? argv[widthIndex + 1] : "120";
+const profile = profileIndex >= 0 ? argv[profileIndex + 1] : null;
 
-const args = ["render", "--width", width];
-if (session) args.push("--session", session);
+// `omp render` takes the session as a positional argument (a "file path or id prefix").
+// A profile's session only resolves its image blobs when the same profile is active.
+const args = [];
+if (profile) args.push("--profile", profile);
+args.push("render", "--width", width);
+if (session) args.push(session);
 
 const proc = spawnSync("omp", args, { encoding: "buffer", maxBuffer: 512 * 1024 * 1024 });
 if (proc.error) {
@@ -61,4 +75,7 @@ if (textCards.length > 0) {
   process.exit(1);
 }
 console.log("\nINCONCLUSIVE: this session contains no image blocks to render.");
+if (!profile && existsSync(join(homedir(), ".omp", "profiles", "ompimg-proof"))) {
+  console.log("      The live-proof profile has one: bun tools/check-render.mjs --profile ompimg-proof");
+}
 process.exit(0);

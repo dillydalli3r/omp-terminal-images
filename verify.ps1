@@ -82,6 +82,23 @@ if ($bun -and (Test-Path -LiteralPath $detect)) {
     Write-Host "`n-- tools/detect.mjs skipped (bun not on PATH)" -ForegroundColor DarkGray
 }
 
+# 7. pasted-image patch + its decoder
+$patchTool = Join-Path $RepoRoot 'tools\patch-paste-images.mjs'
+$thumbCheck = Join-Path $RepoRoot 'tools\check-png-thumb.mjs'
+if ($bun -and (Test-Path -LiteralPath $patchTool)) {
+    Write-Host "`n-- pasted images (composer card + transcript entry)" -ForegroundColor Cyan
+    $status = & $bun.Source $patchTool status 2>&1
+    $status | ForEach-Object { Write-Host "     $_" -ForegroundColor Gray }
+    $patched = ($status -join "`n") -match '(?m)^patched\s+yes'
+    Check 'omp bundle carries the pasted-image patch' $patched 'pasted images draw as pictures, not chips' 'run install.ps1 (or: bun tools/patch-paste-images.mjs apply)'
+    if (Test-Path -LiteralPath $thumbCheck) {
+        $thumbOut = & $bun.Source $thumbCheck 2>&1
+        Check 'thumbnail decoder self-test' ($LASTEXITCODE -eq 0) (($thumbOut | Select-Object -Last 1) -join '') 'bun tools/check-png-thumb.mjs'
+    }
+} else {
+    Write-Host "`n-- pasted-image patch skipped (bun or tools/patch-paste-images.mjs missing)" -ForegroundColor DarkGray
+}
+
 Write-Host "`n== summary" -ForegroundColor Cyan
 if ($failures -eq 0) {
     Write-Host 'All checks passed. Final visual proof:' -ForegroundColor Green
@@ -89,7 +106,8 @@ if ($failures -eq 0) {
     Write-Host "$failures check(s) failed." -ForegroundColor Yellow
 }
 Write-Host '  1. bun tools/sixel-card.mjs      -> must draw a picture in Windows Terminal'
-Write-Host '  2. in omp: /terminal-info        -> Graphics: Sixel'
-Write-Host '  3. in omp: /debug                -> graphics probe draws a sample image'
-Write-Host '  4. bun tools/check-render.mjs    -> counts SIXEL escapes in a session transcript'
+Write-Host '  2. in omp: /debug -> "Test: terminal protocols" -> Graphics - Sixel'
+Write-Host '  3. bun tools/check-render.mjs    -> counts SIXEL escapes in a session transcript'
+Write-Host '  4. pwsh -File tools/live-tui-proof.ps1 [-Scenario paste|debug]'
+Write-Host '     -> drives a real omp in its own WT window and screenshots it into docs/'
 exit $failures

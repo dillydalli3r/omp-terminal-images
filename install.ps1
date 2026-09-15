@@ -23,6 +23,12 @@
 
 .PARAMETER SkipUserEnv
   Do not touch the user-level environment variables (WT profile env only).
+
+.NOTES
+  Also patches the pasted-image surfaces (composer attachment card + transcript entry),
+  which omp only draws for Kitty terminals. That patch edits the vendored, minified
+  dist/cli.js of @oh-my-pi/pi-coding-agent, keeps a backup next to it, and has to be
+  re-applied after every omp upgrade; -Uninstall reverts it.
 #>
 [CmdletBinding()]
 param(
@@ -194,6 +200,23 @@ function Clean-Profiles {
     }
 }
 
+# ------------------------------------------------------------- omp paste thumbnails
+# The composer band and the transcript user message only draw pictures for Kitty, so
+# pasted images stay chips on Windows Terminal. tools/patch-paste-images.mjs patches
+# those two spots in omp's bundled dist/cli.js (it refuses to write when its anchors
+# have moved, and it rolls back by itself if the patched bundle stops booting).
+function Set-PasteThumbnails([bool]$Remove) {
+    $tool = Join-Path $PSScriptRoot 'tools\patch-paste-images.mjs'
+    $bun = Get-Command bun -ErrorAction SilentlyContinue
+    if (-not $bun -or -not (Test-Path -LiteralPath $tool)) { Write-Skip 'bun or tools/patch-paste-images.mjs missing, skipped'; return }
+    if ($DryRun) { Write-Step "would run: bun tools/patch-paste-images.mjs $(if ($Remove) { 'revert' } else { 'apply' })"; return }
+    $argv = if ($Remove) { @($tool, 'revert') } else { @($tool, 'apply') }
+    & $bun.Source @argv | ForEach-Object { Write-Step $_ }
+    if ($LASTEXITCODE -ne 0) { Write-Warn2 'paste thumbnails: patch not applied (see above)'; return }
+    if ($Remove) { Write-Ok 'paste thumbnails: reverted to the stock omp bundle' }
+    else { Write-Ok 'paste thumbnails: pasted images draw as pictures (re-run after each omp upgrade)' }
+}
+
 # ------------------------------------------------------------------------ main
 Write-Head 'omp-terminal-images'
 if ($DryRun) { Write-Warn2 'dry run: nothing will be written' }
@@ -213,6 +236,9 @@ Set-UserEnv $Uninstall.IsPresent
 Write-Head 'omp settings'
 Set-OmpConfig $Uninstall.IsPresent
 
+Write-Head 'pasted-image thumbnails'
+Set-PasteThumbnails $Uninstall.IsPresent
+
 if ($CleanProfiles -or $Uninstall) {
     Write-Head 'PowerShell profiles'
     Clean-Profiles
@@ -224,7 +250,7 @@ if ($Uninstall) {
 } else {
     Write-Host '  Open a NEW Windows Terminal tab and run:'
     Write-Host '    bun tools/sixel-card.mjs      # should draw a picture'
-    Write-Host '    omp                            # then: /terminal-info  ->  Graphics: Sixel'
+    Write-Host '    omp                            # then: /debug -> "Test: terminal protocols" -> Graphics - Sixel'
     Write-Host '  In an existing omp session, images already in the transcript keep their old'
     Write-Host '  text cards until the session is re-rendered (/debug probe or a new session).'
 }

@@ -251,6 +251,7 @@ if ($Uninstall) {
     Write-Host '  Open a NEW Windows Terminal tab and run:'
     Write-Host '    bun tools/sixel-card.mjs      # should draw a picture'
     Write-Host '    omp                            # then: /debug -> "Test: terminal protocols" -> Graphics - Sixel'
-    Write-Host '  In an existing omp session, images already in the transcript keep their old'
-    Write-Host '  text cards until the session is re-rendered (/debug probe or a new session).'
+    Write-Host '  Both fixes are read at process start: restart omp to pick them up. Inside a'
+    Write-Host '  session, images recorded before the fix keep their old text cards until the'
+    Write-Host '  session is re-rendered (/debug probe or a new session).'
 }

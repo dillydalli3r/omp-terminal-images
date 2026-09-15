@@ -94,6 +94,10 @@ Options that were checked first, and why they lost:
   `@oh-my-pi/pi-natives`). `src/` is inert at runtime, so the patch has to land
   in the bundle.
 
+Both fixes are read at process start, so an `omp` that was already running when
+you installed keeps the old behaviour until you restart it (new sessions started
+from a new tab pick them up).
+
 ### Update hazard
 
 The paste patch edits a vendored, minified file. **Any `omp` upgrade or

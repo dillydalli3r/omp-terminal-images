@@ -78,6 +78,19 @@ SIXEL is a cursor-addressed DCS that paints over the card border. Half-blocks
 are text cells too, so the card survives; they are also protocol-independent
 (truecolor `▀` with fg/bg), so the same code works on any 24-bit terminal.
 
+What the thumbnail does to stay legible (it is a preview, not a viewer):
+
+| | Stock | Patched |
+|---|---|---|
+| Card interior | 12x4 cells | 24x6 cells |
+| Thumbnail samples | 12x8 px, stretched to fit | 24x12 px |
+| Aspect | any source stretched into 12:8 | center-cropped to the card's 2:1 |
+| Tone | plain box average | box average, contrast 1.25x around the crop mean |
+
+`tlo` (card width) is derived from `INNER_COLS` at module init, so widening the
+card is one constant; the row count is baked into two literals the patch also
+rewrites. The card is 2 rows taller than stock, which is the visible cost.
+
 Options that were checked first, and why they lost:
 
 - **Extension** — the extension API renders extension-owned messages only.
@@ -264,8 +277,8 @@ Every claim below is a screenshot taken by `tools/live-tui-proof.ps1` from a rea
 |---|---|---|---|
 | 1 | WT does not answer the XTSMGRAPHICS probe | — | `bun tools/probe-xtsmgraphics.mjs` inside WT → empty reply |
 | 2 | The transcript pipeline emits SIXEL for a tool image | `docs/live-tui-proof.png` | orange 50503 / cyan 64896 / green 32771 px inside the TUI; `check-render --profile ompimg-proof` → 1 SIXEL block (720x360), 0 text cards |
-| 3 | The composer card paints the pasted image instead of the icon | `docs/live-paste-composer.png` | card palette in the attachment band 563 px after `Ctrl+V` (threshold 300; 0 before the paste, 49 with the patch reverted) |
-| 4 | The transcript entry for a submitted paste shows the image | `docs/live-paste-transcript.png` | 156423 card-palette px in the transcript (threshold 20000; 5053 and a `🖼 #1` chip with the patch reverted) |
+| 3 | The composer card paints the pasted image instead of the icon | `docs/live-paste-composer.png` | 12907 card-palette px inside the card after `Ctrl+V`, against a floor of `max(300, 3x before)`; the same region reads 1128 vs 1060 before with the patch reverted → fails |
+| 4 | The transcript entry for a submitted paste shows the image | `docs/live-paste-transcript.png` | 145743 card-palette px in the transcript (threshold 20000; 8816 + a `🖼 #1` chip with the patch reverted → fails) |
 | 5 | omp's own graphics probe draws, and reports `Graphics - Sixel` | `docs/live-debug-probe.png` | 15046 gradient px from `/debug` → `Test: terminal protocols` |
 | 6 | WT renders SIXEL at all | — | `tools/sixel-card.mjs` drawn in a WT tab |
 

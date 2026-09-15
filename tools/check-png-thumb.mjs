@@ -169,7 +169,25 @@ const tiny = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDw
 check("1x1 png at 4x2", api.thumb(tiny, "image/png", 4, 2)?.every(l => plain(l).length === 4) === true);
 check("1x1 png at 40x10", api.thumb(tiny, "image/png", 40, 10)?.every(l => plain(l).length === 40) === true);
 
-// 6. webp — what omp actually stores for a pasted clipboard image — needs the async Bun path
+// 6. the card's real geometry: 24x6 cells = 24x12 samples, and a 2:1 source fits it exactly
+const cardLines = api.thumb(png(W, H, rgba, { filter: 0 }).toString("base64"), "image/png", 24, 6);
+const cardP = palette(cardLines.join(""));
+check(
+  "24x6 (card size) keeps all three colours",
+  cardLines.length === 6 && cardLines.every(l => plain(l).length === 24) && cardP.orange > 0 && cardP.cyan > 0 && cardP.green > 0,
+  JSON.stringify(cardP),
+);
+
+// 7. a 1:1 source is center-cropped into the wider box, never stretched
+const square = Buffer.alloc(W * W * 4);
+for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) square.set([247, 148, 29, 255], (y * W + x) * 4);
+const squareLines = api.thumb(png(W, W, square, { filter: 0 }).toString("base64"), "image/png", 24, 6);
+check(
+  "1:1 source crops into the 2:1 card",
+  squareLines?.length === 6 && squareLines.every(l => plain(l).length === 24) && palette(squareLines.join("")).orange > 0,
+);
+
+// 8. webp — what omp actually stores for a pasted clipboard image — needs the async Bun path
 const webpB64 = Buffer.from(await new Bun.Image(png(W, H, rgba, { filter: 0 })).webp().bytes()).toString("base64");
 let repainted = false;
 const owner = { requestRender: () => (repainted = true) };

@@ -416,7 +416,7 @@ $env:OMP_SKIP_SETUP = '1'
 
         # baseline: the band region before the paste
         $before = [LiveProofNative]::Capture($hwnd)
-        $bandBefore = if ($before) { [LiveProofNative]::CountCardColorsInRegion($before, 0.0, 0.22, 0.66, 0.92) } else { 0 }
+        $bandBefore = if ($before) { [LiveProofNative]::CountCardColorsInRegion($before, 0.0, 0.14, 0.53, 0.75) } else { 0 }
         if ($before) { $before.Dispose() }
         Info "composer band palette before paste: $bandBefore"
 
@@ -429,15 +429,19 @@ $env:OMP_SKIP_SETUP = '1'
             $shot = [LiveProofNative]::Capture($hwnd)
             if (-not $shot) { Bad 'capture failed (own window not visible?)'; break }
             Save-Shot $shot $Out
-            $bandAfter = [LiveProofNative]::CountCardColorsInRegion($shot, 0.0, 0.22, 0.66, 0.92)
+            $bandAfter = [LiveProofNative]::CountCardColorsInRegion($shot, 0.0, 0.14, 0.53, 0.75)
             if ($bandAfter -ge $MinThumbnailPixels) { break }
             if ($attempt -lt 4) { Start-Sleep -Seconds 2 }
         }
-        $bandAfter = [LiveProofNative]::CountCardColorsInRegion($shot, 0.0, 0.22, 0.66, 0.92)
+        $bandAfter = [LiveProofNative]::CountCardColorsInRegion($shot, 0.0, 0.14, 0.53, 0.75)
         Info ("captured {0} ({1}x{2})" -f $Out, $shot.Width, $shot.Height)
         Info ("attachment card palette after paste: $bandAfter (threshold $MinThumbnailPixels, before $bandBefore)")
-        if ($bandAfter -ge $MinThumbnailPixels) {
-            Ok 'the attachment card paints the pasted image, not the icon'
+        # The card sits above the editor, so a taller band shifts the rows above it; the
+        # decisive signal is that the card region gains card-coloured pixels, not the
+        # absolute count (a scrolled banner can contribute a few hundred on its own).
+        $bandFloor = [Math]::Max($MinThumbnailPixels, $bandBefore * 3)
+        if ($bandAfter -ge $bandFloor) {
+            Ok "the attachment card paints the pasted image, not the icon ($bandAfter >= $bandFloor)"
         } else {
             Bad 'composer band shows no thumbnail (patch missing, or omp rendered the icon)'
         }

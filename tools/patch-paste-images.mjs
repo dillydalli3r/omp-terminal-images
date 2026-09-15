@@ -177,20 +177,32 @@ globalThis.__ompPasteImages=(function(){
     if(!n)return [0,0,0];
     return [Math.round(r/n),Math.round(g/n),Math.round(b/n)];
   }
+  function clamp(v){return v<0?0:(v>255?255:v);}
+  /* Each cell is one column wide and two pixels tall, so the target aspect is
+     cols : rows*2. Center-crop the source to it (thumbnails crop, they never stretch),
+     and boost contrast around the crop's mean — at a few hundred samples a straight
+     box average reads as grey mush. */
   function halfBlock(img,cols,rows){
     if(cols<1||rows<1)return null;
-    var pxW=cols,pxH=rows*2,lines=[];
+    var pxW=cols,pxH=rows*2;
+    var target=pxW/pxH,src=img.w/img.h,cx0=0,cy0=0,cw=img.w,ch=img.h;
+    if(src>target){cw=Math.max(1,Math.round(img.h*target));cx0=Math.floor((img.w-cw)/2);}
+    else if(src<target){ch=Math.max(1,Math.round(img.w/target));cy0=Math.floor((img.h-ch)/2);}
+    var mean=sample(img,cx0,cy0,cx0+cw,cy0+ch),GAIN=1.25;
+    function tone(v,i){return clamp(Math.round(mean[i]+(v-mean[i])*GAIN));}
+    var lines=[];
     for(var cy=0;cy<rows;cy++){
       var line="";
       for(var cx=0;cx<cols;cx++){
-        var x0=Math.floor(cx*img.w/pxW),x1=Math.max(x0+1,Math.floor((cx+1)*img.w/pxW));
-        if(x1>img.w)x1=img.w;
-        var fa=Math.max(0,Math.floor((cy*2)*img.h/pxH)),fb=Math.max(fa+1,Math.floor((cy*2+1)*img.h/pxH));
-        if(fb>img.h)fb=img.h;
-        var ba=Math.max(0,Math.floor((cy*2+1)*img.h/pxH)),bb=Math.max(ba+1,Math.floor((cy*2+2)*img.h/pxH));
-        if(bb>img.h)bb=img.h;
+        var x0=cx0+Math.floor(cx*cw/pxW),x1=cx0+Math.max(Math.floor(cx*cw/pxW)+1,Math.floor((cx+1)*cw/pxW));
+        var fa=cy0+Math.floor((cy*2)*ch/pxH),fb=cy0+Math.max(Math.floor((cy*2)*ch/pxH)+1,Math.floor((cy*2+1)*ch/pxH));
+        var ba=cy0+Math.floor((cy*2+1)*ch/pxH),bb=cy0+Math.max(Math.floor((cy*2+1)*ch/pxH)+1,Math.floor((cy*2+2)*ch/pxH));
+        if(x1>cx0+cw)x1=cx0+cw;
+        if(fb>cy0+ch)fb=cy0+ch;
+        if(bb>cy0+ch)bb=cy0+ch;
         var fg=sample(img,x0,fa,x1,fb),bg=sample(img,x0,ba,x1,bb);
-        line+="\\u001b[38;2;"+fg[0]+";"+fg[1]+";"+fg[2]+"m\\u001b[48;2;"+bg[0]+";"+bg[1]+";"+bg[2]+"m\\u2580";
+        line+="\\u001b[38;2;"+tone(fg[0],0)+";"+tone(fg[1],1)+";"+tone(fg[2],2)+"m"+
+              "\\u001b[48;2;"+tone(bg[0],0)+";"+tone(bg[1],1)+";"+tone(bg[2],2)+"m\\u2580";
       }
       lines.push(line+"\\u001b[39m\\u001b[49m");
     }
@@ -260,10 +272,28 @@ const TRANSCRIPT_PATCH =
   "}catch(_e){if(process.env.OMP_PASTE_DEBUG)console.error(\"omp-paste-images: \"+_e);}" +
   'break}case"assistant"';
 
+/**
+ * Card geometry. Stock is 12x4 cells: with half-blocks that is a 12x8 pixel
+ * thumbnail, which reads as a colour blob. 24x6 gives 24x12 samples at the 2:1
+ * aspect most screenshots have, for a card two rows taller. `tlo` (the card's
+ * total width) is derived from INNER_COLS at module init, but the band's row
+ * accumulator and the icon fallback both bake in the old row count.
+ */
+const CARD_SIZE_ANCHOR = "var Ib=12,Apt=4,tlo,slo=2,als=";
+const CARD_SIZE_PATCH = "var Ib=24,Apt=6,tlo,slo=2,als=";
+const CARD_ROWS_ANCHOR = 'let s=["","","","","",""]';
+const CARD_ROWS_PATCH = "let s=Array(Apt+2).fill(\"\")";
+const CARD_ICON_ANCHOR = 'return[" ".repeat(Ib),r," ".repeat(Ib)," ".repeat(Ib)]';
+const CARD_ICON_PATCH =
+  'var _rows=Array(Apt).fill(" ".repeat(Ib));_rows[Math.max(0,Math.floor(Apt/2)-1)]=r;return _rows';
+
 /** Every edit, with the anchor that must appear exactly once in the pristine bundle. */
 const EDITS = [
   { name: "band", anchor: BAND_ANCHOR, replacement: BAND_PATCH },
   { name: "transcript", anchor: TRANSCRIPT_ANCHOR, replacement: TRANSCRIPT_PATCH },
+  { name: "card-size", anchor: CARD_SIZE_ANCHOR, replacement: CARD_SIZE_PATCH },
+  { name: "card-rows", anchor: CARD_ROWS_ANCHOR, replacement: CARD_ROWS_PATCH },
+  { name: "card-icon", anchor: CARD_ICON_ANCHOR, replacement: CARD_ICON_PATCH },
 ];
 
 function countOccurrences(haystack, needle) {

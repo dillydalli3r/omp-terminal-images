@@ -273,16 +273,31 @@ const TRANSCRIPT_PATCH =
   'break}case"assistant"';
 
 /**
- * Card geometry. Stock is 12x4 cells: with half-blocks that is a 12x8 pixel
- * thumbnail, which reads as a colour blob. 24x6 gives 24x12 samples at the 2:1
- * aspect most screenshots have, for a card two rows taller. `tlo` (the card's
- * total width) is derived from INNER_COLS at module init, but the band's row
- * accumulator and the icon fallback both bake in the old row count.
+ * Card geometry. Stock is a fixed 12x4 cells: with half-blocks that is a 12x8
+ * pixel thumbnail for every image, which reads as a colour blob. Instead the band
+ * sizes one card per frame from the first attached image: fill the band width,
+ * height follows the image aspect, both capped. `Ib`/`Apt`/`tlo` are module-scope
+ * vars the class already reads, so `render()` just rewrites them before building
+ * the frame — every downstream use (`#t` borders, `#e` caption, `#n` thumbnail,
+ * `#r` centering, `#i` paste text) picks the new size up for free.
+ *
+ * Simplification: one geometry per band, taken from the first image chip, so a
+ * band mixing a text paste and an image sizes both the same way.
  */
-const CARD_SIZE_ANCHOR = "var Ib=12,Apt=4,tlo,slo=2,als=";
-const CARD_SIZE_PATCH = "var Ib=24,Apt=6,tlo,slo=2,als=";
-const CARD_ROWS_ANCHOR = 'let s=["","","","","",""]';
-const CARD_ROWS_PATCH = "let s=Array(Apt+2).fill(\"\")";
+const CARD_SIZE_ANCHOR =
+  'render(e){let t=this.editor.composerChips();if(t.length===0)return[];let s=["","","","","",""],n=" ".repeat(slo),o=0;for(let r of t){if(o+tlo>e)break;let i=this.#e(r);for(let a=0;a<s.length;a++)s[a]+=(o>0?n:"")+i[a];o+=(o>0?slo:0)+tlo}return s}';
+const CARD_SIZE_PATCH =
+  // max interior cols / rows; a 2:1 screenshot lands at 40x10 cells = 40x20 samples
+  '#g(e,t){var MW=60,MH=10;for(var c of t){if(!c||c.kind==="paste")continue;var d=this.#s(c.image);if(!d)continue;' +
+  'var a=d.width/Math.max(1,d.height),avail=Math.max(12,Math.min(MW,e-slo-2));' +
+  'var cols=Math.round(avail),rows=Math.round(cols/(2*a));' +
+  'if(rows>MH){rows=MH;cols=Math.round(rows*2*a)}' +
+  "rows=Math.max(3,Math.min(MH,rows));cols=Math.max(12,Math.min(MW,cols));return{cols:cols,rows:rows}}" +
+  'return{cols:Ib,rows:Apt}}' +
+  'render(e){let t=this.editor.composerChips();if(t.length===0)return[];var g=this.#g(e,t);Ib=g.cols;Apt=g.rows;tlo=Ib+2;' +
+  'let s=Array(Apt+2).fill(""),n=" ".repeat(slo),o=0;for(let r of t){if(o+tlo>e)break;let i=this.#e(r);' +
+  'for(let a=0;a<s.length;a++)s[a]+=(o>0?n:"")+i[a];o+=(o>0?slo:0)+tlo}return s}';
+
 const CARD_ICON_ANCHOR = 'return[" ".repeat(Ib),r," ".repeat(Ib)," ".repeat(Ib)]';
 const CARD_ICON_PATCH =
   'var _rows=Array(Apt).fill(" ".repeat(Ib));_rows[Math.max(0,Math.floor(Apt/2)-1)]=r;return _rows';
@@ -292,7 +307,6 @@ const EDITS = [
   { name: "band", anchor: BAND_ANCHOR, replacement: BAND_PATCH },
   { name: "transcript", anchor: TRANSCRIPT_ANCHOR, replacement: TRANSCRIPT_PATCH },
   { name: "card-size", anchor: CARD_SIZE_ANCHOR, replacement: CARD_SIZE_PATCH },
-  { name: "card-rows", anchor: CARD_ROWS_ANCHOR, replacement: CARD_ROWS_PATCH },
   { name: "card-icon", anchor: CARD_ICON_ANCHOR, replacement: CARD_ICON_PATCH },
 ];
 

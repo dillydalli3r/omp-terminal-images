@@ -16,6 +16,8 @@
 
   Every capture is checked in the captured pixels against the test card's palette
   (orange / cyan / green), so a text fallback fails the run instead of passing.
+  -ClipboardImage <png> pastes a different image instead of the test card, which
+  is how the attachment card's aspect-aware sizing is checked.
 
   Safety: only the window this script created is ever touched or closed, and only
   omp/bun processes descended from the shell this script started AND created after
@@ -33,6 +35,7 @@ param(
     [string]$RepoPath = '',
     [int]$MinPixels = 20000,
     [int]$MinThumbnailPixels = 300,
+    [string]$ClipboardImage = '',
     [int]$PaintTimeoutSec = 30
 )
 
@@ -399,10 +402,16 @@ $env:OMP_SKIP_SETUP = '1'
     else {
         # -------------------------------------------------------- 6. paste scenario
         # Put the same test card on the clipboard so the capture can be checked by palette.
-        $cardMatch = [regex]::Match((Get-Content -LiteralPath (Join-Path $RepoRoot 'tools\sixel-card.mjs') -Raw), 'CARD_PNG_BASE64 =\s*\r?\n?\s*"([^"]+)"')
-        if (-not $cardMatch.Success) { throw 'could not read the test card out of tools/sixel-card.mjs' }
+        # -ClipboardImage swaps in any PNG, which is how the card's aspect handling is checked.
         $clipPath = Join-Path $env:TEMP "omp-live-proof-clip-$marker.png"
-        [System.IO.File]::WriteAllBytes($clipPath, [Convert]::FromBase64String($cardMatch.Groups[1].Value))
+        if ($ClipboardImage) {
+            if (-not (Test-Path -LiteralPath $ClipboardImage)) { throw "-ClipboardImage not found: $ClipboardImage" }
+            Copy-Item -LiteralPath $ClipboardImage -Destination $clipPath -Force
+        } else {
+            $cardMatch = [regex]::Match((Get-Content -LiteralPath (Join-Path $RepoRoot 'tools\sixel-card.mjs') -Raw), 'CARD_PNG_BASE64 =\s*\r?\n?\s*"([^"]+)"')
+            if (-not $cardMatch.Success) { throw 'could not read the test card out of tools/sixel-card.mjs' }
+            [System.IO.File]::WriteAllBytes($clipPath, [Convert]::FromBase64String($cardMatch.Groups[1].Value))
+        }
 
         Add-Type -AssemblyName System.Windows.Forms
         if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {

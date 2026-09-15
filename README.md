@@ -127,6 +127,76 @@ Workarounds:
 | Big images crowd the transcript | Default caps 100 cols / 20 rows | Lower `tui.maxInlineImageColumns` / `tui.maxInlineImageRows` |
 | WSL tab: no images | WSL does not inherit WT profile env into the distro env by default | Add `export PI_FORCE_IMAGE_PROTOCOL=sixel` to `~/.bashrc` inside WSL |
 
+## omp will not open (startup spin)
+
+**Symptom.** A new `omp` never paints. The process burns ~100% of one core
+indefinitely, no session file is created, and
+`~/.omp/logs/omp.<date>.<pid>.log` stops after a single line:
+
+```
+global proxy fetch not installed
+```
+
+**Root cause.** `~/.omp/plugins/package.json` declared plugin packages that are
+not registered in `~/.omp/plugins/omp-plugins.lock.json`. On the machine this
+was diagnosed on:
+
+| Declared dependency | Registered in `omp-plugins.lock.json` | Origin |
+|---|---|---|
+| `@zichuanlan/pi-image-placeholder` (npm) | no | different omp fork (`@earendil-works/pi-*`) |
+| `pi-imgcat` | no | same |
+| `pi-image-preview` | no | same |
+
+With those installed, startup spins. Removing the three dependency entries and
+their `node_modules` directories restores normal startup:
+
+| State | CPU over a 4 s window |
+|---|---|
+| dependencies installed | 4.0 s (one core pinned) |
+| dependencies removed | 0.00–0.19 s (idle TUI) |
+
+Any `omp` started *before* the removal keeps running normally; only new
+instances hang.
+
+**Second, smaller cause.** Stale `~/.omp/agent/terminal-sessions/wt-<guid>`
+breadcrumbs. Each record is `line1=cwd`, `line2=session jsonl path`, optional
+`line3=fresh`. If line 2 names a session file that no longer exists, a fresh
+`omp` in that terminal can spin too (13 such records existed here).
+
+**Fix.**
+
+```powershell
+pwsh -File .\fix-stuck-startup.ps1
+```
+
+Then open a **new** terminal and start `omp`. Both repairs take effect only for
+instances started afterwards.
+
+| Flag | Effect |
+|---|---|
+| *(none)* | Apply both repairs |
+| `-DryRun` | Print intended actions, write nothing |
+| `-SkipBreadcrumbs` | Only unregister the broken plugin dependencies |
+| `-Revert` | Copy quarantined plugin package directories back and restore the `package.json` backup |
+| `-QuarantineDir <path>` | Quarantine root, default `~/.omp/.quarantine-ompimages` |
+
+The script reads the registered plugin names from `omp-plugins.lock.json`, backs
+up `package.json` once as `package.json.bak-ompimages`, drops each unregistered
+dependency key, and moves its package directory out of `node_modules`. It prints
+one `[ok]` / `[--]` / `[!!]` line per item and exits 0. Nothing is deleted:
+plugin packages land in `<QuarantineDir>\plugins`, breadcrumb files in
+`<QuarantineDir>\terminal-sessions`.
+
+**Measuring the spin by hand.** With a fresh `omp` starting:
+
+```powershell
+Get-Process bun | Select Id,CPU
+```
+
+A hung instance climbs to ~100% of one core; a healthy TUI stays near idle. This
+is also the failure the **Verified on** section ran into when starting a second
+`omp` — same cause, same fix.
+
 ## Uninstall
 
 ```powershell

@@ -452,7 +452,7 @@ $env:OMP_SKIP_SETUP = '1'
         if ($bandAfter -ge $bandFloor) {
             Ok "the attachment card paints the pasted image, not the icon ($bandAfter >= $bandFloor)"
         } else {
-            Bad 'composer band shows no thumbnail (patch missing, or omp rendered the icon)'
+            Bad 'composer band shows no paste preview (patch missing, or omp rendered the icon)'
         }
 
         # submit -> the transcript entry for the pasted image

@@ -364,10 +364,10 @@ profile env entries and the user env vars, and restores the newest
 
 ## Verified on
 
-Windows 11, Windows Terminal 1.24.11911.0, omp 18.2.0 (`@oh-my-pi/pi-tui` 18.2.0).
-The 18.1.22 run this started from is in the git history. The patch machinery was
-re-verified on omp 18.2.1 — the release that moved the inline-image options
-helper and gained the `?? Lr(…)` default the old anchor could not match.
+Windows 11, Windows Terminal 1.24.11911.0, omp 18.2.1 (`@oh-my-pi/pi-tui` 18.2.1).
+The 18.1.22 and 18.2.0 runs this started from are in the git history. The screenshots
+below were taken on 18.2.1 — the release that moved the inline-image options helper
+and gained the `?? Lr(…)` default the old anchor could not match.
 
 Not every claim here is a picture. The patch verifies itself: `status` resolves
 every anchor and alias in the installed bundle, `apply` re-reads the bundle it

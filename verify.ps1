@@ -4,12 +4,28 @@
 
 .DESCRIPTION
   Read-only. Inspects the Windows Terminal version, the WT profile environment,
-  the user environment, omp's terminal.showImages setting, and (when bun is
-  available) the image protocol omp resolves for this shell. Prints what to do
-  for anything that is off.
+  the user environment, this process' environment, omp's terminal.showImages
+  setting, the protocol omp resolves for this shell, and whether the installed
+  omp bundle carries the pasted-image patch.
+
+  The exit code is the number of problems found: failed checks plus warnings.
+  It always matches the printed summary, so a runner can gate on it.
+
+.PARAMETER Headless
+  Run only the checks that need no GUI or TTY (Windows Terminal version, WT
+  profile environment, user environment, this process' environment, config.yml,
+  tools/detect.mjs, and the pasted-image patch), skip the visual-proof
+  instructions, and exit with the real code.
+
+.EXAMPLE
+  pwsh -File verify.ps1 -Headless    # runner-friendly, exit code = problem count
+.EXAMPLE
+  pwsh -File verify.ps1              # same checks, plus the manual visual proofs
 #>
 [CmdletBinding()]
-param()
+param(
+    [switch]$Headless
+)
 
 $ErrorActionPreference = 'Continue'
 $RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
@@ -24,8 +40,14 @@ function Check($name, $ok, $detail, $fix) {
     if (-not $ok -and $fix) { Write-Host "     fix: $fix" -ForegroundColor DarkYellow }
     if (-not $ok) { $script:failures++ }
 }
+function Warn($name, $detail) {
+    $script:warnings++
+    Write-Host ("[!!] {0}" -f $name) -ForegroundColor Yellow
+    if ($detail) { Write-Host "     $detail" -ForegroundColor Gray }
+}
 
 Write-Host "`n== omp terminal images: verify" -ForegroundColor Cyan
+if ($Headless) { Write-Host '   headless: GUI/TTY proofs are skipped' -ForegroundColor DarkGray }
 
 # 1. Windows Terminal version
 $pkg = Get-AppxPackage -Name Microsoft.WindowsTerminal -ErrorAction SilentlyContinue
@@ -44,12 +66,19 @@ $wtSettings = @(
 ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 
 if ($wtSettings) {
-    $json = Get-Content -LiteralPath $wtSettings -Raw | ConvertFrom-Json
-    $envMap = $json.profiles.defaults.environment
-    $proto = $envMap.PI_FORCE_IMAGE_PROTOCOL
-    $links = $envMap.PI_FORCE_HYPERLINKS
-    Check "WT profiles.defaults.environment.PI_FORCE_IMAGE_PROTOCOL" ($proto -eq 'sixel') "value: $proto" "run install.ps1"
-    Check "WT profiles.defaults.environment.PI_FORCE_HYPERLINKS" ($links -eq '1') "value: $links" "run install.ps1 (image chips become Ctrl+clickable)"
+    $json = $null
+    try { $json = Get-Content -LiteralPath $wtSettings -Raw | ConvertFrom-Json } catch { $json = $null }
+    if (-not $json) {
+        Check 'Windows Terminal settings.json' $false "unreadable JSON: $wtSettings" 'fix settings.json in Windows Terminal (Ctrl+,)'
+    } elseif ($json.profiles -is [array]) {
+        Check 'WT profiles.defaults.environment' $false 'profiles is written as an array; the object form {"profiles":{"defaults":{"environment":{...}}}} is required for a default environment' 'set the variables in Windows Terminal settings (Profiles > Defaults > Environment)'
+    } else {
+        $envMap = $json.profiles.defaults.environment
+        $proto = $envMap.PI_FORCE_IMAGE_PROTOCOL
+        $links = $envMap.PI_FORCE_HYPERLINKS
+        Check "WT profiles.defaults.environment.PI_FORCE_IMAGE_PROTOCOL" ($proto -eq 'sixel') "value: $proto" "run install.ps1"
+        Check "WT profiles.defaults.environment.PI_FORCE_HYPERLINKS" ($links -eq '1') "value: $links" "run install.ps1 (image chips become Ctrl+clickable)"
+    }
 } else {
     Check 'Windows Terminal settings.json' $false 'not found' 'run install.ps1'
 }
@@ -77,37 +106,59 @@ $bun = Get-Command bun -ErrorAction SilentlyContinue
 if ($bun -and (Test-Path -LiteralPath $detect)) {
     Write-Host "`n-- protocol omp resolves for this shell" -ForegroundColor Cyan
     & $bun.Source $detect
-    if ($LASTEXITCODE -ne 0) { $warnings++ }
+    if ($LASTEXITCODE -ne 0) { Warn 'tools/detect.mjs' "exited $LASTEXITCODE - this shell's protocol could not be resolved" }
 } else {
     Write-Host "`n-- tools/detect.mjs skipped (bun not on PATH)" -ForegroundColor DarkGray
 }
 
-# 7. pasted-image patch + its decoder
+# 7. pasted-image patch
 $patchTool = Join-Path $RepoRoot 'tools\patch-paste-images.mjs'
-$thumbCheck = Join-Path $RepoRoot 'tools\check-png-thumb.mjs'
 if ($bun -and (Test-Path -LiteralPath $patchTool)) {
     Write-Host "`n-- pasted images (composer card + transcript entry)" -ForegroundColor Cyan
-    $status = & $bun.Source $patchTool status 2>&1
-    $status | ForEach-Object { Write-Host "     $_" -ForegroundColor Gray }
-    $patched = ($status -join "`n") -match '(?m)^patched\s+yes'
-    Check 'omp bundle carries the pasted-image patch' $patched 'pasted images draw as pictures, not chips' 'run install.ps1 (or: bun tools/patch-paste-images.mjs apply)'
-    if (Test-Path -LiteralPath $thumbCheck) {
-        $thumbOut = & $bun.Source $thumbCheck 2>&1
-        Check 'thumbnail decoder self-test' ($LASTEXITCODE -eq 0) (($thumbOut | Select-Object -Last 1) -join '') 'bun tools/check-png-thumb.mjs'
+    $raw = @(& $bun.Source $patchTool check --json 2>&1 | ForEach-Object { [string]$_ })
+    $text = $raw -join "`n"
+    $st = $null
+    $start = $text.IndexOf('{')
+    if ($start -ge 0) { try { $st = $text.Substring($start) | ConvertFrom-Json } catch { $st = $null } }
+
+    if ($st) {
+        $detail = "omp $($st.ompVersion) - $($st.cliPath)"
+        if ($st.patched -and -not $st.stale) {
+            Check 'omp bundle carries the pasted-image patch' $true "patch rev $($st.patchRev), $detail" $null
+        } elseif ("$($st.reason)" -like 'unsatisfiable:*') {
+            Check 'omp bundle carries the pasted-image patch' $false "$($st.reason) - re-running install.ps1 cannot fix this: the omp build is not one this patch understands, so tools/patch-paste-images.mjs needs updating (or a matching omp build installed)" 'bun tools/patch-paste-images.mjs check'
+        } elseif ($st.stale) {
+            Check 'omp bundle carries the pasted-image patch' $false "stale: $($st.reason) - $detail" 'run install.ps1 (re-applies the patch after an omp upgrade)'
+        } else {
+            Check 'omp bundle carries the pasted-image patch' $false "not applied: $($st.reason) - $detail" 'run install.ps1 (or: bun tools/patch-paste-images.mjs apply)'
+        }
+    } else {
+        # Patcher without `check --json` (older checkout): fall back to `status`.
+        $status = @(& $bun.Source $patchTool status 2>&1 | ForEach-Object { [string]$_ })
+        $status | ForEach-Object { Write-Host "     $_" -ForegroundColor Gray }
+        $patched = ($status -join "`n") -match '(?m)^patched\s+yes'
+        Check 'omp bundle carries the pasted-image patch' $patched 'pasted images draw as pictures, not chips' 'run install.ps1 (or: bun tools/patch-paste-images.mjs apply)'
     }
 } else {
     Write-Host "`n-- pasted-image patch skipped (bun or tools/patch-paste-images.mjs missing)" -ForegroundColor DarkGray
 }
 
+$problems = $failures + $warnings
 Write-Host "`n== summary" -ForegroundColor Cyan
-if ($failures -eq 0) {
-    Write-Host 'All checks passed. Final visual proof:' -ForegroundColor Green
+if ($failures -eq 0 -and $warnings -eq 0) {
+    Write-Host 'All checks passed.' -ForegroundColor Green
 } else {
-    Write-Host "$failures check(s) failed." -ForegroundColor Yellow
+    Write-Host "$failures check(s) failed, $warnings warning(s)." -ForegroundColor Yellow
 }
-Write-Host '  1. bun tools/sixel-card.mjs      -> must draw a picture in Windows Terminal'
-Write-Host '  2. in omp: /debug -> "Test: terminal protocols" -> Graphics - Sixel'
-Write-Host '  3. bun tools/check-render.mjs    -> counts SIXEL escapes in a session transcript'
-Write-Host '  4. pwsh -File tools/live-tui-proof.ps1 [-Scenario paste|debug]'
-Write-Host '     -> drives a real omp in its own WT window and screenshots it into docs/'
-exit $failures
+Write-Host "exit code $problems" -ForegroundColor $(if ($problems -eq 0) { 'Green' } else { 'Yellow' })
+
+if (-not $Headless) {
+    Write-Host 'Final visual proof (needs Windows Terminal and a real omp session):'
+    Write-Host '  1. bun tools/sixel-card.mjs      -> must draw a picture in Windows Terminal'
+    Write-Host '  2. in omp: /debug -> "Test: terminal protocols" -> Graphics - Sixel'
+    Write-Host '  3. bun tools/check-render.mjs    -> counts SIXEL escapes in a session transcript'
+    Write-Host '  4. pwsh -File tools/live-tui-proof.ps1 [-Scenario paste|debug]'
+    Write-Host '     -> drives a real omp in its own WT window and screenshots it into docs/'
+}
+
+exit $problems

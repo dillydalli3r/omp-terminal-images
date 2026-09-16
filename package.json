@@ -1,0 +1,32 @@
+{
+  "name": "@dillydalli3r/omp-terminal-images",
+  "version": "1.1.0",
+  "description": "Inline images in the oh-my-pi TUI on Windows Terminal: pins the sixel protocol and patches the composer and transcript surfaces so pasted images render as pictures instead of chips, with a startup check that re-applies the patch after every omp upgrade.",
+  "license": "MIT",
+  "author": "dillydalli3r",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dillydalli3r/omp-terminal-images.git"
+  },
+  "homepage": "https://github.com/dillydalli3r/omp-terminal-images",
+  "omp": {
+    "extensions": ["./extensions/terminal-images/index.js"]
+  },
+  "files": [
+    "extensions/",
+    "tools/",
+    "install.ps1",
+    "verify.ps1",
+    "fix-stuck-startup.ps1",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check extensions/terminal-images/index.js && node --check tools/patch-paste-images.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
